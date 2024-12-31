@@ -1,0 +1,108 @@
+name: Frontend Node js CD
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  workflow_run:
+    workflows: [Python CD]
+    branches: [main]
+    types:
+      - completed
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:  # Job for running tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./starter/frontend
+    strategy:
+      matrix:
+        node-version: ['16.x', '18.x', '20.x']
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: './starter/frontend/package-lock.json'
+    - name: Install dependencies
+      run: npm ci
+    - name: Run tests
+      run: npm run test
+
+  build:
+    runs-on: ubuntu-latest
+    # Wait for test job finish
+    needs: test  
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./starter/frontend
+    # Expose step outputs as job outputs
+    outputs:
+      repo-image-name: ${{ steps.build-push-image.outputs.repo-image-name }}
+    steps:
+    - uses: actions/checkout@v4
+    # Configure AWS credential environment variables
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    # Login to Amazon ECR Private
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    # Build and push a Docker image
+    - name: Build, tag, and push the image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY_WEB }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest --build-arg=REACT_APP_MOVIE_API_URL=${{ vars.APP_MOVIE_API_URL }} .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    # Wait for build job finish
+    needs: build  
+    steps:
+    - uses: actions/checkout@v4
+    # Configure AWS credential environment variables
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    # Make sure you're kubeconfig is configured for the EKS cluster
+    - name: Update a kubeconfig file
+      env:
+        AWS_EKS_CLUSTER_NAME: ${{ vars.AWS_EKS_CLUSTER_NAME }}
+      run: |
+        aws sts get-caller-identity
+        aws eks update-kubeconfig --region $AWS_REGION --name $AWS_EKS_CLUSTER_NAME
+        kubectl config current-context
+        kubectl get svc
+    # Login to Amazon ECR Private
+    - name: Login to Amazon ECR
+      id: login-ecr-deploy
+      uses: aws-actions/amazon-ecr-login@v2
+    # Apply the manifests to the cluster
+    - name: Apply the manifests to the cluster
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr-deploy.outputs.registry }}
+        ECR_REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY_WEB }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd ./starter/frontend/k8s
+        kustomize edit set image frontend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        kustomize build | kubectl apply -f -
