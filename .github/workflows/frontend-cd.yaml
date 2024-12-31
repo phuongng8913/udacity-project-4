@@ -1,12 +1,11 @@
 name: Frontend Node js CD
 
 on:
-  workflow_dispatch:  # Allow manual triggering
-  workflow_run:
-    workflows: [Python CD]
-    branches: [main]
-    types:
-      - completed
+ # Allow manual triggering
+  workflow_dispatch: 
+  push:
+    branches:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
