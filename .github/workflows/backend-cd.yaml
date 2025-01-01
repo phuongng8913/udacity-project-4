@@ -9,6 +9,42 @@ on:
 
 jobs:
   # Job for running tests
+  lint:
+    name: Backend Linting
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Cache pipenv dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pipenv
+          key: pipenv-${{ runner.os }}-${{ hashFiles('**/Pipfile.lock') }}
+          restore-keys: |
+            pipenv-${{ runner.os }}-
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{env.PYTHON_VERSION}}
+
+      - name: Install pipenv
+        run: |
+          pip install pipenv && pip install flake8
+
+      - name: Install dependencies
+        run: |
+          pipenv install
+
+      - name: Run lint
+        run: |
+          pipenv run lint
+
+  # Job for running tests
   test:  
     runs-on: ubuntu-latest
     defaults:

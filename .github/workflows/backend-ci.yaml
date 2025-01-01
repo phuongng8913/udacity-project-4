@@ -1,6 +1,7 @@
 name: Backend Python CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main

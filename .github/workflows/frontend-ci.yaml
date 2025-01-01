@@ -1,6 +1,7 @@
 name: Frontend Node js CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
