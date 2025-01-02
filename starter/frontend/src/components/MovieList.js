@@ -6,8 +6,8 @@ function MovieList({ onMovieClick }) {
   const [movies, setMovies] = useState([]);
 
   useEffect(() => {
-    console.log(`http://localhost:5000/movies`);
-    axios.get(`http://localhost:5000/movies`).then((response) => {
+    console.log(`${process.env.REACT_APP_MOVIE_API_URL}/movies`);
+    axios.get(`${process.env.REACT_APP_MOVIE_API_URL}/movies`).then((response) => {
       setMovies(response.data.movies);
     });
   }, []);
